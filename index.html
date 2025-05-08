@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Minecraft Runner</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Press Start 2P', cursive;
+            background-color: #87CEEB; /* Sky blue background */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            overflow: hidden; /* Prevent scrollbars */
+        }
+        #game-container {
+            border: 4px solid #000;
+            box-shadow: 8px 8px 0px #000;
+            border-radius: 12px;
+            overflow: hidden; /* Keep game elements within bounds */
+            position: relative; /* Needed for absolute positioning of message box */
+            background-color: #30A040; /* Grass color */
+        }
+        canvas {
+            display: block;
+            width: 100%; /* Make canvas responsive */
+            height: 100%; /* Make canvas responsive */
+        }
+        #message-box {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            display: none; /* Hidden by default */
+            z-index: 10; /* Above the canvas */
+            font-size: 1rem;
+            box-shadow: 4px 4px 0px #fff;
+        }
+        #message-box button {
+            background-color: #4CAF50; /* Green */
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 1rem;
+            margin-top: 15px;
+            cursor: pointer;
+            border-radius: 4px;
+            font-family: 'Press Start 2P', cursive;
+            box-shadow: 2px 2px 0px #000;
+            transition: background-color 0.3s ease;
+        }
+        #message-box button:hover {
+            background-color: #45a049;
+        }
+        #score {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-size: 1.2rem;
+            z-index: 5; /* Above canvas, below message box */
+            text-shadow: 2px 2px 0px #000;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container" class="w-11/12 max-w-screen-lg aspect-video relative">
+        <canvas id="gameCanvas"></canvas>
+        <div id="score">Score: 0</div>
+        <div id="message-box">
+            <div id="message-text">Game Over!</div>
+            <button id="restart-button">Restart</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const messageBox = document.getElementById('message-box');
+        const messageText = document.getElementById('message-text');
+        const restartButton = document.getElementById('restart-button');
+        const scoreDisplay = document.getElementById('score');
+
+        // Game variables
+        let gameRunning = false;
+        let score = 0;
+        const gravity = 0.6;
+        const jumpStrength = -12;
+        const obstacleSpeed = 5;
+        const obstacleInterval = 1500; // milliseconds
+        let lastObstacleTime = 0;
+        let obstacles = [];
+
+        // Player variables (inspired by Steve from Minecraft)
+        const playerWidth = 30;
+        const playerHeight = 40;
+        let playerX = 50;
+        let playerY = canvas.height - playerHeight - 20; // Start on the ground
+        let playerVelocityY = 0;
+        let isJumping = false;
+        const groundHeight = 20; // Height of the ground layer
+
+        // Background variables (inspired by the image)
+        const backgroundSpeed = 0.5;
+        let backgroundX = 0;
+        const cloudSpeed = 0.3;
+        let clouds = [];
+        const cloudInterval = 3000; // milliseconds
+        let lastCloudTime = 0;
+        const treeSpeed = 0.4;
+        let trees = [];
+        const treeInterval = 2000; // milliseconds
+        let lastTreeTime = 0;
+
+        // Resize canvas function
+        function resizeCanvas() {
+            const container = document.getElementById('game-container');
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+
+            // Adjust player starting position based on new canvas height
+            playerY = canvas.height - playerHeight - groundHeight;
+
+            // Clear and redraw everything on resize
+            if (gameRunning) {
+                 // Re-initialize game state if needed or just redraw
+                 // For simplicity, we'll just redraw in the next frame
+            } else {
+                 // If game is not running, just draw the initial state
+                 draw();
+            }
+        }
+
+        // Add resize event listener
+        window.addEventListener('resize', resizeCanvas);
+
+        // Initial canvas size setup
+        resizeCanvas();
+
+
+        // --- Drawing Functions ---
+
+        // Draw the ground
+        function drawGround() {
+            ctx.fillStyle = '#8B4513'; // Brown color for dirt
+            ctx.fillRect(0, canvas.height - groundHeight, canvas.width, groundHeight);
+            ctx.fillStyle = '#30A040'; // Grass color on top
+            ctx.fillRect(0, canvas.height - groundHeight - 5, canvas.width, 5); // Simple grass line
+        }
+
+        // Draw the player (simple blocky style)
+        function drawPlayer() {
+            ctx.fillStyle = '#1E90FF'; // Blue shirt
+            ctx.fillRect(playerX, playerY, playerWidth, playerHeight);
+            ctx.fillStyle = '#A0522D'; // Skin tone
+            ctx.fillRect(playerX, playerY - 10, playerWidth, 10); // Head
+            ctx.fillStyle = '#000'; // Eyes
+            ctx.fillRect(playerX + 5, playerY - 8, 5, 5);
+            ctx.fillRect(playerX + playerWidth - 10, playerY - 8, 5, 5);
+        }
+
+        // Draw an obstacle (simple block)
+        function drawObstacle(obstacle) {
+            ctx.fillStyle = '#A0522D'; // Brown block
+            ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+        }
+
+        // Draw a cloud
+        function drawCloud(cloud) {
+             ctx.fillStyle = 'rgba(255, 255, 255, 0.8)'; // White with some transparency
+             ctx.beginPath();
+             ctx.arc(cloud.x, cloud.y, cloud.size, 0, Math.PI * 2);
+             ctx.arc(cloud.x + cloud.size * 0.8, cloud.y, cloud.size * 0.7, 0, Math.PI * 2);
+             ctx.arc(cloud.x - cloud.size * 0.8, cloud.y, cloud.size * 0.7, 0, Math.PI * 2);
+             ctx.arc(cloud.x + cloud.size * 0.4, cloud.y - cloud.size * 0.5, cloud.size * 0.6, 0, Math.PI * 2);
+             ctx.arc(cloud.x - cloud.size * 0.4, cloud.y - cloud.size * 0.5, cloud.size * 0.6, 0, Math.PI * 2);
+             ctx.fill();
+        }
+
+         // Draw a tree
+        function drawTree(tree) {
+            // Trunk
+            ctx.fillStyle = '#8B4513'; // Brown
+            ctx.fillRect(tree.x, tree.y + tree.height / 2, tree.width, tree.height / 2);
+            // Leaves (simple blocky shape)
+            ctx.fillStyle = '#228B22'; // Forest Green
+            ctx.fillRect(tree.x - tree.width, tree.y, tree.width * 3, tree.height / 2);
+            ctx.fillRect(tree.x - tree.width * 0.5, tree.y - tree.height * 0.2, tree.width * 2, tree.height * 0.3);
+        }
+
+
+        // Draw everything
+        function draw() {
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw background elements (clouds, trees)
+            clouds.forEach(drawCloud);
+            trees.forEach(drawTree);
+
+            // Draw ground
+            drawGround();
+
+            // Draw obstacles
+            obstacles.forEach(drawObstacle);
+
+            // Draw player
+            drawPlayer();
+
+            // Update score display
+            scoreDisplay.textContent = `Score: ${score}`;
+        }
+
+        // --- Game Logic Functions ---
+
+        // Handle player jump
+        function jump() {
+            if (!isJumping) {
+                playerVelocityY = jumpStrength;
+                isJumping = true;
+            }
+        }
+
+        // Update game state
+        function update(deltaTime) {
+            if (!gameRunning) return;
+
+            // Update player position
+            playerVelocityY += gravity;
+            playerY += playerVelocityY;
+
+            // Prevent player from falling through the ground
+            if (playerY >= canvas.height - playerHeight - groundHeight) {
+                playerY = canvas.height - playerHeight - groundHeight;
+                playerVelocityY = 0;
+                isJumping = false;
+            }
+
+            // Generate obstacles
+            if (performance.now() - lastObstacleTime > obstacleInterval) {
+                const obstacleWidth = 20 + Math.random() * 30;
+                const obstacleHeight = 30 + Math.random() * 50;
+                const obstacleX = canvas.width;
+                const obstacleY = canvas.height - obstacleHeight - groundHeight;
+                obstacles.push({ x: obstacleX, y: obstacleY, width: obstacleWidth, height: obstacleHeight });
+                lastObstacleTime = performance.now();
+            }
+
+             // Generate clouds
+            if (performance.now() - lastCloudTime > cloudInterval) {
+                const cloudSize = 20 + Math.random() * 30;
+                const cloudX = canvas.width + cloudSize; // Start off-screen
+                const cloudY = 50 + Math.random() * (canvas.height / 3); // Upper part of the screen
+                clouds.push({ x: cloudX, y: cloudY, size: cloudSize });
+                lastCloudTime = performance.now();
+            }
+
+            // Generate trees
+            if (performance.now() - lastTreeTime > treeInterval) {
+                const treeWidth = 20 + Math.random() * 10;
+                const treeHeight = 50 + Math.random() * 50;
+                const treeX = canvas.width;
+                const treeY = canvas.height - treeHeight - groundHeight; // Position on the ground
+                trees.push({ x: treeX, y: treeY, width: treeWidth, height: treeHeight });
+                lastTreeTime = performance.now();
+            }
+
+
+            // Move obstacles, clouds, and trees
+            obstacles.forEach(obstacle => obstacle.x -= obstacleSpeed);
+            clouds.forEach(cloud => cloud.x -= cloudSpeed);
+            trees.forEach(tree => tree.x -= treeSpeed);
+
+
+            // Remove off-screen obstacles, clouds, and trees
+            obstacles = obstacles.filter(obstacle => obstacle.x + obstacle.width > 0);
+            clouds = clouds.filter(cloud => cloud.x + cloud.size * 2 > 0); // Consider cloud size
+            trees = trees.filter(tree => tree.x + tree.width * 3 > 0); // Consider tree width
+
+
+            // Collision detection
+            obstacles.forEach(obstacle => {
+                if (
+                    playerX < obstacle.x + obstacle.width &&
+                    playerX + playerWidth > obstacle.x &&
+                    playerY < obstacle.y + obstacle.height &&
+                    playerY + playerHeight > obstacle.y
+                ) {
+                    gameOver();
+                }
+            });
+
+            // Increase score
+            score += 1; // Simple score increase over time
+        }
+
+        // Game Over
+        function gameOver() {
+            gameRunning = false;
+            messageText.textContent = `Game Over! Your score is ${Math.floor(score / 100)}.`; // Adjust score display
+            messageBox.style.display = 'block';
+        }
+
+        // Restart Game
+        function restartGame() {
+            score = 0;
+            obstacles = [];
+            clouds = [];
+            trees = [];
+            playerY = canvas.height - playerHeight - groundHeight;
+            playerVelocityY = 0;
+            isJumping = false;
+            messageBox.style.display = 'none';
+            gameRunning = true;
+            lastObstacleTime = performance.now(); // Reset timers
+            lastCloudTime = performance.now();
+            lastTreeTime = performance.now();
+            gameLoop(); // Start the loop again
+        }
+
+        // Event listeners
+        canvas.addEventListener('click', jump); // Jump on click
+        document.addEventListener('keydown', (event) => {
+            if (event.code === 'Space' || event.code === 'ArrowUp') {
+                jump();
+            }
+        });
+        restartButton.addEventListener('click', restartGame);
+
+         // Add touch support for jumping
+        canvas.addEventListener('touchstart', (event) => {
+            event.preventDefault(); // Prevent default touch behavior (like scrolling)
+            jump();
+        });
+
+
+        // Game loop
+        let lastTime = 0;
+        function gameLoop(currentTime) {
+            const deltaTime = currentTime - lastTime;
+            lastTime = currentTime;
+
+            update(deltaTime);
+            draw();
+
+            if (gameRunning) {
+                requestAnimationFrame(gameLoop);
+            }
+        }
+
+        // Initial state before game starts
+        function initializeGame() {
+             draw(); // Draw the initial scene
+             messageText.textContent = "Click or Space to Jump!";
+             messageBox.style.display = 'block';
+             restartButton.textContent = "Start Game"; // Change button text to Start
+             restartButton.removeEventListener('click', restartGame); // Remove restart listener
+             restartButton.addEventListener('click', startGame); // Add start listener
+        }
+
+        // Start Game function
+        function startGame() {
+             messageBox.style.display = 'none';
+             gameRunning = true;
+             score = 0; // Ensure score is 0 at start
+             obstacles = []; // Clear any initial obstacles
+             clouds = []; // Clear any initial clouds
+             trees = []; // Clear any initial trees
+             lastObstacleTime = performance.now(); // Reset timers
+             lastCloudTime = performance.now();
+             lastTreeTime = performance.now();
+             // Re-add restart listener and remove start listener
+             restartButton.removeEventListener('click', startGame);
+             restartButton.addEventListener('click', restartGame);
+             gameLoop(performance.now()); // Start the game loop
+        }
+
+
+        // Start the initial state setup when the window loads
+        window.onload = initializeGame;
+
+
+    </script>
+</body>
+</html>
